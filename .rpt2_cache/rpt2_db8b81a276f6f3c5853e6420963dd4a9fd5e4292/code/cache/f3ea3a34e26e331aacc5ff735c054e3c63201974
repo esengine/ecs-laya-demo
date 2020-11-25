@@ -1,0 +1,7 @@
+{
+  "code": "import * as tslib_1 from \"tslib\";\r\nimport { SpawnerComponent, EnemyType } from \"../components/SpawnerComponent\";\r\nimport { SpawnerSystem } from \"../systems/SpawnerSystem\";\r\nexport class MainScene extends es.Scene {\r\n    onStart() {\r\n        return tslib_1.__awaiter(this, void 0, void 0, function* () {\r\n            let spawn = this.createEntity(\"spawn\");\r\n            spawn.addComponent(new SpawnerComponent(EnemyType.worm));\r\n            this.addEntityProcessor(new SpawnerSystem(new es.Matcher().all(SpawnerComponent)));\r\n        });\r\n    }\r\n}\r\n",
+  "references": [
+    "E:/ecs-laya-demo/src/components/SpawnerComponent.ts",
+    "E:/ecs-laya-demo/src/systems/SpawnerSystem.ts"
+  ]
+}

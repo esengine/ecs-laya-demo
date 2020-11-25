@@ -1,0 +1,4 @@
+{
+  "code": "export class SpawnerComponent extends es.Component {\r\n    constructor(enemyType) {\r\n        super();\r\n        this.cooldown = -1;\r\n        this.minInterval = 2;\r\n        this.maxInterval = 60;\r\n        this.minCount = 1;\r\n        this.maxCount = 1;\r\n        this.enemyType = EnemyType.worm;\r\n        this.numSpawned = 0;\r\n        this.numAlive = 0;\r\n        this.enemyType = enemyType;\r\n    }\r\n}\r\nexport var EnemyType;\r\n(function (EnemyType) {\r\n    EnemyType[EnemyType[\"worm\"] = 0] = \"worm\";\r\n})(EnemyType || (EnemyType = {}));\r\n",
+  "references": []
+}
