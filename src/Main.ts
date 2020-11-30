@@ -26,10 +26,12 @@ class Main {
 
 		let core = new es.Core(GameConfig.width, GameConfig.height);
 		Laya.timer.frameLoop(1, this, ()=>{
-			es.Time.update(Laya.systemTimer.currTimer);
 			// 必须派发该事件 否则核心内所有更新事件将不会执行
-			es.Core.emitter.emit(es.CoreEvents.FrameUpdated);
+			es.Core.emitter.emit(es.CoreEvents.FrameUpdated, Laya.systemTimer.currTimer);
 		});
+		core._titleMemory = (totalMemory, frameCounter) => {
+			console.log(`info 使用内存: ${totalMemory / 2} MB  FPS: ${frameCounter}`);
+		};
 
 		// 设置MainScene为当前激活的场景
 		es.Core.scene = new MainScene();
