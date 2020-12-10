@@ -88,7 +88,6 @@ declare module es {
          */
         static entitySystemsEnabled: boolean;
         _nextScene: Scene;
-        _sceneTransition: SceneTransition;
         /**
          * 用于凝聚GraphicsDeviceReset事件
          */
@@ -120,11 +119,6 @@ declare module es {
         */
         static scene: Scene;
         /**
-         * 临时运行SceneTransition，允许一个场景过渡到另一个平滑的自定义效果。
-         * @param sceneTransition
-         */
-        static startSceneTransition<T extends SceneTransition>(sceneTransition: T): T;
-        /**
          * 添加一个全局管理器对象，它的更新方法将调用场景前的每一帧。
          * @param manager
          */
@@ -148,7 +142,6 @@ declare module es {
          */
         static schedule(timeInSeconds: number, repeats: boolean, context: any, onTime: (timer: ITimer) => void): Timer;
         onOrientationChanged(): void;
-        draw(): Promise<void>;
         startDebugDraw(): void;
         /**
          * 在一个场景结束后，下一个场景开始之前调用
@@ -355,15 +348,10 @@ declare module es {
          */
         readonly entities: EntityList;
         /**
-         * 管理当前在场景实体上的所有可呈现组件的列表
-         */
-        readonly renderableComponents: RenderableComponentList;
-        /**
          * 管理所有实体处理器
          */
         readonly entityProcessors: EntityProcessorList;
         readonly _sceneComponents: FastList<SceneComponent>;
-        _renderers: Renderer[];
         _didSceneBegin: any;
         constructor();
         /**
@@ -374,7 +362,7 @@ declare module es {
         /**
          * 当Core将这个场景设置为活动场景时，这个将被调用
          */
-        onStart(): Promise<void>;
+        onStart(): void;
         /**
          * 在场景子类中重写这个，并在这里做任何必要的卸载。
          * 当Core把这个场景从活动槽中移除时，这个被调用。
@@ -384,12 +372,6 @@ declare module es {
         end(): void;
         updateResolutionScaler(): void;
         update(): void;
-        render(): void;
-        /**
-         * 现在的任何后处理器都要完成它的处理
-         * 只有在SceneTransition请求渲染时，它才会有一个值。
-         */
-        postRender(): void;
         /**
          * 向组件列表添加并返回SceneComponent
          * @param component
@@ -410,21 +392,6 @@ declare module es {
          * @param component
          */
         removeSceneComponent(component: SceneComponent): void;
-        /**
-         * 为场景添加一个渲染器
-         * @param renderer
-         */
-        addRenderer<T extends Renderer>(renderer: T): T;
-        /**
-         * 获取类型为T的第一个渲染器
-         * @param type
-         */
-        getRenderer<T extends Renderer>(type: any): T;
-        /**
-         * 从场景中移除渲染器
-         * @param renderer
-         */
-        removeRenderer(renderer: Renderer): void;
         /**
          * 将实体添加到此场景，并返回它
          * @param name
@@ -758,6 +725,94 @@ declare module es {
 }
 declare module es {
     /**
+     * 请注意，这不是一个完整的、多迭代的物理系统！它可以用于简单的、街机风格的物理。
+     * 这可以用于简单的，街机风格的物理学
+     */
+    class ArcadeRigidbody extends Component implements IUpdatable {
+        /** 这个刚体的质量。质量为0，则是一个不可移动的物体 */
+        mass: number;
+        /**
+         * 0-1范围，其中0为无反弹，1为完全反射。
+         */
+        readonly elasticity: number;
+        elasticiy: number;
+        /**
+         * 0 - 1范围。0表示没有摩擦力，1表示物体会停止在原地
+         */
+        friction: number;
+        /**
+         * 0-9的范围。当发生碰撞时，沿碰撞面做直线运动时，如果其平方幅度小于glue摩擦力，则将碰撞设置为上限
+         */
+        glue: number;
+        /**
+         *  如果为真，则每一帧都会考虑到Physics.gravity
+         */
+        shouldUseGravity: boolean;
+        /**
+         * 该刚体的速度
+         */
+        velocity: Vector2;
+        /**
+         * 质量为0的刚体被认为是不可移动的。改变速度和碰撞对它们没有影响
+         */
+        readonly isImmovable: boolean;
+        _mass: number;
+        _elasticity: number;
+        _friction: number;
+        _glue: number;
+        _inverseMass: number;
+        _collider: Collider;
+        constructor();
+        /**
+         * 这个刚体的质量。质量为0，则是一个不可移动的物体
+         * @param mass
+         */
+        setMass(mass: number): ArcadeRigidbody;
+        /**
+         * 0-1范围，其中0为无反弹，1为完全反射。
+         * @param value
+         */
+        setElasticity(value: number): ArcadeRigidbody;
+        /**
+         * 0 - 1范围。0表示没有摩擦力，1表示物体会停止在原地
+         * @param value
+         */
+        setFriction(value: number): ArcadeRigidbody;
+        /**
+         * 0-9的范围。当发生碰撞时，沿碰撞面做直线运动时，如果其平方幅度小于glue摩擦力，则将碰撞设置为上限
+         * @param value
+         */
+        setGlue(value: number): ArcadeRigidbody;
+        /**
+         * 用刚体的质量给刚体加上一个瞬间的力脉冲。力是一个加速度，单位是每秒像素每秒。将力乘以100000，使数值使用更合理
+         * @param force
+         */
+        addImpulse(force: Vector2): void;
+        onAddedToEntity(): void;
+        update(): void;
+        /**
+         * 将两个重叠的刚体分开。也处理其中一个不可移动的情况
+         * @param other
+         * @param minimumTranslationVector
+         */
+        processOverlap(other: ArcadeRigidbody, minimumTranslationVector: Vector2): void;
+        /**
+         * 处理两个非重叠的刚体的碰撞。新的速度将根据情况分配给每个刚体
+         * @param other
+         * @param minimumTranslationVector
+         */
+        processCollision(other: ArcadeRigidbody, minimumTranslationVector: Vector2): void;
+        /**
+         *  给定两个物体和MTV之间的相对速度，本方法修改相对速度，使其成为碰撞响应
+         * @param relativeVelocity
+         * @param minimumTranslationVector
+         * @param responseVelocity
+         */
+        calculateResponseVelocity(relativeVelocity: Vector2, minimumTranslationVector: Vector2, responseVelocity?: Vector2): void;
+    }
+}
+declare module es {
+    /**
      * 当添加到组件时，每当实体上的冲突器与另一个组件重叠/退出时，将调用这些方法。
      * ITriggerListener方法将在实现接口的触发器实体上的任何组件上调用。
      * 注意，这个接口只与Mover类一起工作
@@ -814,15 +869,15 @@ declare module es {
 }
 declare module es {
     /**
-     * 只向itriggerlistener报告冲突的移动器
-     * 该对象将始终移动完整的距离
+     * 移动时考虑到碰撞，只用于向任何ITriggerListeners报告。
+     * 物体总是会全量移动，所以如果需要的话，由调用者在撞击时销毁它。
      */
     class ProjectileMover extends Component {
         private _tempTriggerList;
         private _collider;
         onAddedToEntity(): void;
         /**
-         * 移动考虑碰撞的实体
+         * 在考虑到碰撞的情况下移动实体
          * @param motion
          */
         move(motion: Vector2): boolean;
@@ -923,14 +978,17 @@ declare module es {
          * @param motion
          * @param result
          */
-        collidesWith(collider: Collider, motion: Vector2, result: CollisionResult): boolean;
+        collidesWith(collider: Collider, motion: Vector2, result?: CollisionResult): boolean;
+        /**
+         * 检查这个对撞机是否与对撞机发生碰撞。如果碰撞，则返回true，结果将被填充
+         * @param collider
+         * @param result
+         */
+        collidesWithNonMotion(collider: Collider, result?: CollisionResult): boolean;
     }
 }
 declare module es {
     class BoxCollider extends Collider {
-        /**
-         * 零参数构造函数要求RenderableComponent在实体上，这样碰撞器可以在实体被添加到场景时调整自身的大小。
-         */
         constructor(x: number, y: number, width: number, height: number);
         width: number;
         height: number;
@@ -1190,7 +1248,7 @@ declare module es {
          * 返回第一个找到的名字为name的实体。如果没有找到则返回null
          * @param name
          */
-        findEntity(name: string): any;
+        findEntity(name: string): Entity;
         /**
          * 返回带有标签的所有实体的列表。如果没有实体有标签，则返回一个空列表。
          * 返回的List可以通过ListPool.free放回池中
@@ -1235,117 +1293,6 @@ declare module es {
     }
 }
 declare module es {
-    /**
-     * 创建这个字典的原因只有一个：
-     * 我需要一个能让我直接以数组的形式对值进行迭代的字典，而不需要生成一个数组或使用迭代器。
-     * 对于这个目标是比标准字典快N倍。
-     * Faster dictionary在大部分操作上也比标准字典快，但差别可以忽略不计。
-     * 唯一较慢的操作是在添加时调整内存大小，因为与标准数组相比，这个实现需要使用两个单独的数组。
-     */
-    class FasterDictionary<TKey, TValue> {
-        _values: TValue[];
-        _valuesInfo: FastNode[];
-        _buckets: number[];
-        _freeValueCellIndex: number;
-        _collisions: number;
-        constructor(size?: number);
-        getValuesArray(count: {
-            value: number;
-        }): TValue[];
-        readonly valuesArray: TValue[];
-        readonly count: number;
-        add(key: TKey, value: TValue): void;
-        addValue(key: TKey, value: TValue, indexSet: {
-            value: number;
-        }): boolean;
-        remove(key: TKey): boolean;
-        trim(): void;
-        clear(): void;
-        fastClear(): void;
-        containsKey(key: TKey): boolean;
-        tryGetValue(key: TKey): TValue;
-        tryFindIndex(key: TKey, findIndex: {
-            value: number;
-        }): boolean;
-        getDirectValue(index: number): TValue;
-        getIndex(key: TKey): number;
-        static updateLinkedList(index: number, valuesInfo: FastNode[]): void;
-        static hash(key: any): number;
-        static reduce(x: number, n: number): number;
-    }
-    class FastNode {
-        readonly key: any;
-        readonly hashcode: number;
-        previous: number;
-        next: number;
-        constructor(key: any, hash: number, previousNode?: number);
-    }
-}
-declare module es {
-    /**
-     * 围绕一个数组的非常基本的包装，当它达到容量时自动扩展。
-     * 注意，在迭代时应该这样直接访问缓冲区，但使用FastList.length字段。
-     *
-     * @tutorial
-     * for( var i = 0; i <= list.length; i++ )
-     *      var item = list.buffer[i];
-     */
-    class FastList<T> {
-        /**
-         * 直接访问后备缓冲区。
-         * 不要使用buffer.Length! 使用FastList.length
-         */
-        buffer: T[];
-        /**
-         * 直接访问缓冲区内填充项的长度。不要改变。
-         */
-        length: number;
-        constructor(size?: number);
-        /**
-         * 清空列表并清空缓冲区中的所有项目
-         */
-        clear(): void;
-        /**
-         *  和clear的工作原理一样，只是它不会将缓冲区中的所有项目清空。
-         */
-        reset(): void;
-        /**
-         * 将该项目添加到列表中
-         * @param item
-         */
-        add(item: T): void;
-        /**
-         * 从列表中删除该项目
-         * @param item
-         */
-        remove(item: T): void;
-        /**
-         * 从列表中删除给定索引的项目。
-         * @param index
-         */
-        removeAt(index: number): void;
-        /**
-         * 检查项目是否在FastList中
-         * @param item
-         */
-        contains(item: T): boolean;
-        /**
-         * 如果缓冲区达到最大，将分配更多的空间来容纳额外的ItemCount。
-         * @param additionalItemCount
-         */
-        ensureCapacity(additionalItemCount?: number): void;
-        /**
-         * 添加数组中的所有项目
-         * @param array
-         */
-        addRange(array: T[]): void;
-        /**
-         * 对缓冲区中的所有项目进行排序，长度不限。
-         */
-        sort(comparer: IComparer<T>): void;
-    }
-}
-declare module es {
     class HashHelpers {
         static readonly hashCollisionThreshold: number;
         static readonly hashPrime: number;
@@ -1387,73 +1334,6 @@ declare module es {
         all(...types: any[]): Matcher;
         exclude(...types: any[]): this;
         one(...types: any[]): this;
-    }
-}
-declare module es {
-    /**
-     * 当该接口应用到组件时，它将注册组件以场景渲染器显示
-     * 该接口请谨慎实现
-     */
-    interface IRenderable {
-        /**
-         * 对象的AABB用于相机剔除
-         */
-        bounds: Rectangle;
-        /**
-         * 这个组件是否应该被渲染
-         */
-        enabled: boolean;
-        /**
-         * 较低的渲染层在前面，较高的在后面
-         */
-        renderLayer: number;
-        /**
-         * 可渲染的可见性。状态的改变会调用onBecameVisible/onBecameInvisible方法
-         */
-        isVisible: boolean;
-    }
-    /**
-     * 用于排序IRenderables的比较器
-     */
-    class RenderableComparer {
-        compare(self: IRenderable, other: IRenderable): number;
-    }
-}
-declare module es {
-    class RenderableComponentList {
-        /**
-         * IRenderable列表的全局updatePrder排序
-         */
-        static compareUpdatableOrder: RenderableComparer;
-        /**
-         * 添加到实体的组件列表
-         */
-        _components: IRenderable[];
-        /**
-         * 通过渲染层跟踪组件，便于检索
-         */
-        _componentsByRenderLayer: Map<number, IRenderable[]>;
-        _unsortedRenderLayers: number[];
-        private _componentsNeedSort;
-        componentsNeedSort: boolean;
-        readonly count: number;
-        readonly buffer: IRenderable[];
-        add(component: IRenderable): void;
-        remove(component: IRenderable): void;
-        updateRenderableRenderLayer(component: IRenderable, oldRenderLayer: number, newRenderLayer: number): void;
-        /**
-         * 将渲染层排序标志弄脏，让所有组件重新排序
-         * @param renderLayer
-         */
-        setRenderLayerNeedsComponentSort(renderLayer: number): void;
-        setNeedsComponentSort(): void;
-        addToRenderLayerList(component: IRenderable, renderLayer: number): void;
-        /**
-         * 使用给定的渲染层获取所有组件。组件列表是预先排序的
-         * @param renderLayer
-         */
-        componentsWithRenderLayer(renderLayer: number): IRenderable[];
-        updateList(): void;
     }
 }
 declare class StringUtils {
@@ -1647,94 +1527,27 @@ declare class TimeUtils {
     static timeToMillisecond(time: string, partition?: string): string;
 }
 declare module es {
-    class Viewport {
-        private _x;
-        private _y;
-        private _minDepth;
-        private _maxDepth;
-        constructor(x: number, y: number, width: number, height: number);
-        private _width;
-        width: number;
-        private _height;
-        height: number;
-        readonly aspectRatio: number;
-        bounds: Rectangle;
-    }
-}
-declare module es {
     /**
-     * 渲染器被添加到场景中并处理所有对RenderableComponent的实际调用
+     * 三次方和二次方贝塞尔帮助器(cubic and quadratic bezier helper)
      */
-    abstract class Renderer {
-        /**
-         * 指定场景调用渲染器的顺序
-         */
-        readonly renderOrder: number;
-        /**
-         * 这个渲染器的标志，决定它是否应该调试渲染。
-         * render方法接收一个bool (debugRenderEnabled)，让渲染器知道全局调试渲染是否打开/关闭。
-         * 渲染器然后使用本地bool来决定它是否应该调试渲染。
-         */
-        shouldDebugRender: boolean;
-        protected constructor(renderOrder: number);
-        /**
-         * 当渲染器被添加到场景时调用
-         * @param scene
-         */
-        onAddedToScene(scene: Scene): void;
-        /**
-         * 当场景结束或渲染器从场景中移除时调用。使用这个进行清理。
-         */
-        unload(): void;
-        abstract render(scene: Scene): any;
-        /**
-         * 当默认场景渲染目标被调整大小和当场景已经开始添加渲染器时调用
-         * @param newWidth
-         * @param newHeight
-         */
-        onSceneBackBufferSizeChanged(newWidth: number, newHeight: number): void;
-        compareTo(other: Renderer): number;
-    }
-}
-declare module es {
-    /**
-     * SceneTransition用于从一个场景过渡到另一个场景或在一个有效果的场景中过渡
-     */
-    abstract class SceneTransition {
-        /** 是否加载新场景的标志 */
-        loadsNewScene: boolean;
-        /**
-         * 将此用于两个部分的转换。例如，淡出会先淡出到黑色，然后当isNewSceneLoaded为true，它会淡出。
-         * 对于场景过渡，isNewSceneLoaded应该在中点设置为true，这就标识一个新的场景被加载了。
-         */
-        isNewSceneLoaded: boolean;
-        /** 在loadNextScene执行时调用。这在进行场景间过渡时很有用，这样你就知道什么时候可以更多地使用相机或者重置任何实体 */
-        onScreenObscured: Function;
-        /** 当转换完成执行时调用，以便可以调用其他工作，比如启动另一个转换。 */
-        onTransitionCompleted: Function;
-        /** 返回新加载场景的函数 */
-        protected sceneLoadAction: Function;
-        constructor(sceneLoadAction: Function);
-        private _hasPreviousSceneRender;
-        readonly hasPreviousSceneRender: boolean;
-        preRender(): void;
-        render(): void;
-        onBeginTransition(): Promise<void>;
-        protected transitionComplete(): void;
-        protected loadNextScene(): Promise<void>;
-    }
-}
-declare module es {
-    /** 贝塞尔帮助类 */
     class Bezier {
         /**
-         * 二次贝塞尔曲线
+         * 求解二次曲折线
          * @param p0
          * @param p1
          * @param p2
          * @param t
          */
         static getPoint(p0: Vector2, p1: Vector2, p2: Vector2, t: number): Vector2;
+        /**
+         * 求解一个立方体曲率
+         * @param start
+         * @param firstControlPoint
+         * @param secondControlPoint
+         * @param end
+         * @param t
+         */
+        static getPointThree(start: Vector2, firstControlPoint: Vector2, secondControlPoint: Vector2, end: Vector2, t: number): Vector2;
         /**
          * 得到二次贝塞尔函数的一阶导数
          * @param p0
@@ -1752,15 +1565,6 @@ declare module es {
          * @param t
          */
         static getFirstDerivativeThree(start: Vector2, firstControlPoint: Vector2, secondControlPoint: Vector2, end: Vector2, t: number): Vector2;
-        /**
-         * 计算一个三次贝塞尔
-         * @param start
-         * @param firstControlPoint
-         * @param secondControlPoint
-         * @param end
-         * @param t
-         */
-        static getPointThree(start: Vector2, firstControlPoint: Vector2, secondControlPoint: Vector2, end: Vector2, t: number): Vector2;
         /**
          * 递归地细分bezier曲线，直到满足距离校正
          * 在这种算法中，平面切片的点要比曲面切片少。返回完成后应返回到ListPool的合并列表。
@@ -1781,6 +1585,58 @@ declare module es {
          * @param distanceTolerance
          */
         private static recursiveGetOptimizedDrawingPoints;
+    }
+}
+declare module es {
+    /**
+     * 提供了一系列立方贝塞尔点，并提供了帮助方法来访问贝塞尔
+     */
+    class BezierSpline {
+        _points: FastList<Vector2>;
+        _curveCount: number;
+        /**
+         * 在这个过程中，t被修改为在曲线段的范围内。
+         * @param t
+         */
+        pointIndexAtTime(t: Ref<number>): number;
+        /**
+         * 设置一个控制点，考虑到这是否是一个共享点，如果是，则适当调整
+         * @param index
+         * @param point
+         */
+        setControlPoint(index: number, point: Vector2): void;
+        /**
+         * 得到时间t的贝塞尔曲线上的点
+         * @param t
+         */
+        getPointAtTime(t: number): Vector2;
+        /**
+         * 得到贝塞尔在时间t的速度（第一导数）
+         * @param t
+         */
+        getVelocityAtTime(t: number): Vector2;
+        /**
+         * 得到时间t时贝塞尔的方向（归一化第一导数）
+         * @param t
+         */
+        getDirectionAtTime(t: number): Vector2;
+        /**
+         * 在贝塞尔曲线上添加一条曲线
+         * @param start
+         * @param firstControlPoint
+         * @param secondControlPoint
+         * @param end
+         */
+        addCurve(start: Vector2, firstControlPoint: Vector2, secondControlPoint: Vector2, end: Vector2): void;
+        /**
+         * 重置bezier，移除所有点
+         */
+        reset(): void;
+        /**
+         * 将splitine分解成totalSegments部分，并返回使用线条绘制所需的所有点
+         * @param totalSegments
+         */
+        getDrawingPoints(totalSegments: number): Vector2[];
     }
 }
 declare module es {
@@ -1876,6 +1732,7 @@ declare module es {
          */
         static clamp01(value: number): number;
         static angleBetweenVectors(from: Vector2, to: Vector2): number;
+        static angleToVector(angleRadians: number, length: number): Vector2;
         /**
          * 增加t并确保它总是大于或等于0并且小于长度
          * @param t
@@ -1889,6 +1746,45 @@ declare module es {
          * @param shift
          */
         static approach(start: number, end: number, shift: number): number;
+    }
+}
+declare module es {
+    /**
+     * 代表右手4x4浮点矩阵，可以存储平移、比例和旋转信息
+     */
+    class Matrix {
+        m11: number;
+        m12: number;
+        m13: number;
+        m14: number;
+        m21: number;
+        m22: number;
+        m23: number;
+        m24: number;
+        m31: number;
+        m32: number;
+        m33: number;
+        m34: number;
+        m41: number;
+        m42: number;
+        m43: number;
+        m44: number;
+        /**
+         * 为自定义的正交视图创建一个新的投影矩阵
+         * @param left
+         * @param right
+         * @param top
+         * @param zFarPlane
+         * @param result
+         */
+        static createOrthographicOffCenter(left: number, right: number, bottom: number, top: number, zNearPlane: number, zFarPlane: number, result?: Matrix): void;
+        /**
+         * 创建一个新的矩阵，其中包含两个矩阵的乘法。
+         * @param matrix1
+         * @param matrix2
+         * @param result
+         */
+        static multiply(matrix1: Matrix, matrix2: Matrix, result?: Matrix): void;
     }
 }
 declare module es {
@@ -1922,7 +1818,6 @@ declare module es {
          * 储存在这个矩阵中的缩放
          */
         scale: Vector2;
-        static _identity: Matrix2D;
         /**
          * 构建一个矩阵
          * @param m11
@@ -1978,6 +1873,7 @@ declare module es {
          * @param other
          */
         equals(other: Matrix2D): boolean;
+        static toMatrix(mat: Matrix2D): Matrix;
         toString(): string;
     }
 }
@@ -2011,7 +1907,6 @@ declare module es {
 }
 declare module es {
     class Rectangle implements IEquatable<Rectangle> {
-        static emptyRectangle: Rectangle;
         /**
          * 该矩形的左上角的x坐标
          */
@@ -2196,6 +2091,7 @@ declare module es {
          * 获取这个矩形的哈希码
          */
         getHashCode(): number;
+        clone(): Rectangle;
     }
 }
 declare module es {
@@ -2369,19 +2265,18 @@ declare module es {
          */
         round(): Vector2;
         /**
+         * 返回以自己为中心点的左右角，单位为度
+         * @param left
+         * @param right
+         */
+        angleBetween(left: Vector2, right: Vector2): number;
+        /**
          * 比较当前实例是否等于指定的对象
          * @param other 要比较的对象
          * @returns 如果实例相同true 否则false
          */
         equals(other: Vector2 | object): boolean;
-    }
-}
-declare module es {
-    class Vector3 {
-        x: number;
-        y: number;
-        z: number;
-        constructor(x: number, y: number, z: number);
+        clone(): Vector2;
     }
 }
 declare module es {
@@ -2418,8 +2313,8 @@ declare module es {
         bottomRight = 6
     }
     class Collisions {
-        static isLineToLine(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2): boolean;
-        static lineToLineIntersection(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2): Vector2;
+        static lineToLine(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2): boolean;
+        static lineToLineIntersection(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2, intersection?: Vector2): boolean;
         static closestPointOnLine(lineA: Vector2, lineB: Vector2, closestTo: Vector2): Vector2;
         static circleToCircle(circleCenter1: Vector2, circleRadius1: number, circleCenter2: Vector2, circleRadius2: number): boolean;
         static circleToLine(circleCenter: Vector2, radius: number, lineFrom: Vector2, lineTo: Vector2): boolean;
@@ -2479,6 +2374,8 @@ declare module es {
 declare module es {
     class Physics {
         static _spatialHash: SpatialHash;
+        /** 用于在全局范围内存储重力值的方便字段 */
+        static gravity: Vector2;
         /** 调用reset并创建一个新的SpatialHash时使用的单元格大小 */
         static spatialHashCellSize: number;
         /** 接受layerMask的所有方法的默认值 */
@@ -2521,6 +2418,12 @@ declare module es {
          * @param layerMask
          */
         static boxcastBroadphaseExcludingSelf(collider: Collider, rect: Rectangle, layerMask?: number): Set<Collider>;
+        /**
+         * 返回所有边界与 collider.bounds 相交的碰撞器，但不包括传入的碰撞器(self)
+         * @param collider
+         * @param layerMask
+         */
+        static boxcastBroadphaseExcludingSelfNonRect(collider: Collider, layerMask?: number): Set<Collider>;
         /**
          * 将对撞机添加到物理系统中
          * @param collider
@@ -2648,7 +2551,7 @@ declare module es {
      * 它的主要目的是将int、int x、y坐标散列到单个Uint32键中，使用O(1)查找。
      */
     class NumberDictionary {
-        _store: Map<string, Collider[]>;
+        _store: Map<number, Collider[]>;
         add(x: number, y: number, list: Collider[]): void;
         /**
          * 使用蛮力方法从字典存储列表中移除碰撞器
@@ -2656,7 +2559,7 @@ declare module es {
          */
         remove(obj: Collider): void;
         tryGetValue(x: number, y: number): Collider[];
-        getKey(x: number, y: number): string;
+        getKey(x: number, y: number): number;
         /**
          * 清除字典数据
          */
@@ -2880,6 +2783,19 @@ declare module es {
 declare module es {
     class RealtimeCollisions {
         static intersectMovingCircleBox(s: Circle, b: Box, movement: Vector2, time: Ref<number>): boolean;
+        /**
+         * 支持函数，返回索引为n的矩形vert
+         * @param b
+         * @param n
+         */
+        static corner(b: Rectangle, n: number): Vector2;
+        /**
+         * 检查圆是否与方框重叠，并返回point交点
+         * @param cirlce
+         * @param box
+         * @param point
+         */
+        static testCircleBox(cirlce: Circle, box: Box, point: Vector2): boolean;
     }
 }
 declare module es {
@@ -2911,24 +2827,21 @@ declare module es {
          * @param min
          * @param max
          */
-        static getInterval(axis: Vector2, polygon: Polygon, min: number, max: number): {
-            min: number;
-            max: number;
-        };
+        static getInterval(axis: Vector2, polygon: Polygon, min: Ref<number>, max: Ref<number>): void;
         /**
          *
          * @param circle
          * @param polygon
          * @param result
          */
-        static circleToPolygon(circle: Circle, polygon: Polygon, result: CollisionResult): boolean;
+        static circleToPolygon(circle: Circle, polygon: Polygon, result?: CollisionResult): boolean;
         /**
-         * 适用于圆心在方框内以及只与方框外圆心重叠的圆。
+         * 适用于中心在框内的圆，也适用于与框外中心重合的圆。
          * @param circle
          * @param box
          * @param result
          */
-        static circleToBox(circle: Circle, box: Box, result: CollisionResult): boolean;
+        static circleToBox(circle: Circle, box: Box, result?: CollisionResult): boolean;
         /**
          *
          * @param point
@@ -2957,7 +2870,7 @@ declare module es {
          * @param second
          * @param result
          */
-        static circleToCircle(first: Circle, second: Circle, result: CollisionResult): boolean;
+        static circleToCircle(first: Circle, second: Circle, result?: CollisionResult): boolean;
         /**
          *
          * @param first
@@ -2966,7 +2879,7 @@ declare module es {
          */
         static boxToBox(first: Box, second: Box, result: CollisionResult): boolean;
         private static minkowskiDifference;
-        static lineToPoly(start: Vector2, end: Vector2, polygon: Polygon, hit: RaycastHit): boolean;
+        static lineToPoly(start: Vector2, end: Vector2, polygon: Polygon, hit?: RaycastHit): boolean;
         static lineToLine(a1: Vector2, a2: Vector2, b1: Vector2, b2: Vector2, intersection: Vector2): boolean;
         static lineToCircle(start: Vector2, end: Vector2, s: Circle, hit: RaycastHit): boolean;
         /**
@@ -2977,192 +2890,6 @@ declare module es {
          * @param hit
          */
         static boxToBoxCast(first: Box, second: Box, movement: Vector2, hit: RaycastHit): boolean;
-    }
-}
-declare class ArrayUtils {
-    /**
-     * 执行冒泡排序
-     * @param    ary
-     * 算法参考 -- http://www.hiahia.org/datastructure/paixu/paixu8.3.1.1-1.htm
-     */
-    static bubbleSort(ary: number[]): void;
-    /**
-     * 执行插入排序
-     * @param ary
-     */
-    static insertionSort(ary: number[]): void;
-    /**
-     * 执行二分搜索
-     * @param ary 搜索的数组（必须排序过）
-     * @param value 需要搜索的值
-     * @returns 返回匹配结果的数组索引
-     */
-    static binarySearch(ary: number[], value: number): number;
-    /**
-     * 返回匹配项的索引
-     * @param ary
-     * @param num
-     */
-    static findElementIndex(ary: any[], num: any): any;
-    /**
-     * 返回数组中最大值的索引
-     * @param ary
-     */
-    static getMaxElementIndex(ary: number[]): number;
-    /**
-     * 返回数组中最小值的索引
-     * @param ary
-     */
-    static getMinElementIndex(ary: number[]): number;
-    /**
-     * 返回一个"唯一性"数组
-     * @param ary 需要唯一性的数组
-     * @returns 唯一性的数组
-     *
-     * @tutorial
-     * 比如: [1, 2, 2, 3, 4]
-     * 返回: [1, 2, 3, 4]
-     */
-    static getUniqueAry(ary: number[]): number[];
-    /**
-     * 返回2个数组中不同的部分
-     * 比如数组A = [1, 2, 3, 4, 6]
-     *    数组B = [0, 2, 1, 3, 4]
-     * 返回[6, 0]
-     * @param    aryA
-     * @param    aryB
-     * @return
-     */
-    static getDifferAry(aryA: number[], aryB: number[]): number[];
-    /**
-     * 交换数组元素
-     * @param    array    目标数组
-     * @param    index1    交换后的索引
-     * @param    index2    交换前的索引
-     */
-    static swap(array: any[], index1: number, index2: number): void;
-    /**
-     * 清除列表
-     * @param ary
-     */
-    static clearList(ary: any[]): void;
-    /**
-     * 克隆一个数组
-     * @param    ary 需要克隆的数组
-     * @return  克隆的数组
-     */
-    static cloneList(ary: any[]): any[];
-    /**
-     * 判断2个数组是否相同
-     * @param ary1 数组1
-     * @param ary2 数组2
-     */
-    static equals(ary1: number[], ary2: number[]): Boolean;
-    /**
-     * 根据索引插入元素，索引和索引后的元素都向后移动一位
-     * @param ary
-     * @param index 插入索引
-     * @param value 插入的元素
-     * @returns 插入的元素 未插入则返回空
-     */
-    static insert(ary: any[], index: number, value: any): any;
-    /**
-     * 打乱数组 Fisher–Yates shuffle
-     * @param list
-     */
-    static shuffle<T>(list: T[]): void;
-    /**
-     * 如果项目已经在列表中，返回false，如果成功添加，返回true
-     * @param list
-     * @param item
-     */
-    static addIfNotPresent<T>(list: T[], item: T): boolean;
-    /**
-     * 返回列表中的最后一项。列表中至少应该有一个项目
-     * @param list
-     */
-    static lastItem<T>(list: T[]): T;
-    /**
-     * 从列表中随机获取一个项目。不清空检查列表!
-     * @param list
-     */
-    static randomItem<T>(list: T[]): T;
-    /**
-     * 从列表中随机获取物品。不清空检查列表，也不验证列表数是否大于项目数。返回的List可以通过ListPool.free放回池中
-     * @param list
-     * @param itemCount 从列表中返回的随机项目的数量
-     */
-    static randomItems<T>(list: T[], itemCount: number): T[];
-}
-declare module es {
-    class Base64Utils {
-        private static _keyStr;
-        /**
-         * 判断是否原生支持Base64位解析
-         */
-        static readonly nativeBase64: boolean;
-        /**
-         * 解码
-         * @param input
-         */
-        static decode(input: string): string;
-        /**
-         * 编码
-         * @param input
-         */
-        static encode(input: string): string;
-        /**
-         * 解析Base64格式数据
-         * @param input
-         * @param bytes
-         */
-        static decodeBase64AsArray(input: string, bytes: number): Uint32Array;
-        /**
-         * 暂时不支持
-         * @param data
-         * @param decoded
-         * @param compression
-         * @private
-         */
-        static decompress(data: string, decoded: any, compression: string): any;
-        /**
-         * 解析csv数据
-         * @param input
-         */
-        static decodeCSV(input: string): Array<number>;
-    }
-}
-declare module es {
-    class Color {
-        /**
-         * 存储为RGBA
-         */
-        private _packedValue;
-        /**
-         * 从代表红、绿、蓝和alpha值的标量构造RGBA颜色。
-         */
-        constructor(r: number, g: number, b: number, alpha: number);
-        b: number;
-        g: number;
-        r: number;
-        a: number;
-        packedValue: number;
-        equals(other: Color): boolean;
-    }
-}
-declare module es {
-    class EdgeExt {
-        static oppositeEdge(self: Edge): Edge;
-        /**
-         * 如果边是右或左，则返回true
-         * @param self
-         */
-        static isHorizontal(self: Edge): boolean;
-        /**
-         * 如果边是顶部或底部，则返回true
-         * @param self
-         */
-        static isVertical(self: Edge): boolean;
     }
 }
 declare module es {
@@ -3313,266 +3040,11 @@ declare module es {
 }
 declare module es {
     /**
-     * 可以用于列表池的简单类
-     */
-    class ListPool {
-        private static readonly _objectQueue;
-        /**
-         * 预热缓存，使用最大的cacheCount对象填充缓存
-         * @param cacheCount
-         */
-        static warmCache(cacheCount: number): void;
-        /**
-         * 将缓存修剪为cacheCount项目
-         * @param cacheCount
-         */
-        static trimCache(cacheCount: any): void;
-        /**
-         * 清除缓存
-         */
-        static clearCache(): void;
-        /**
-         * 如果可以的话，从堆栈中弹出一个项
-         */
-        static obtain<T>(): T[];
-        /**
-         * 将项推回堆栈
-         * @param obj
-         */
-        static free<T>(obj: Array<T>): void;
-    }
-}
-declare module es {
-    class NumberExtension {
-        static toNumber(value: any): number;
-    }
-}
-declare module es {
-    /**
-     * 用于管理一对对象的简单DTO
-     */
-    class Pair<T> implements IEqualityComparable {
-        first: T;
-        second: T;
-        constructor(first: T, second: T);
-        clear(): void;
-        equals(other: Pair<T>): boolean;
-        getHashCode(): number;
-    }
-}
-declare module es {
-    /**
-     * 用于池任何对象
-     */
-    class Pool<T> {
-        private static _objectQueue;
-        /**
-         * 预热缓存，使用最大的cacheCount对象填充缓存
-         * @param type
-         * @param cacheCount
-         */
-        static warmCache(type: any, cacheCount: number): void;
-        /**
-         * 将缓存修剪为cacheCount项目
-         * @param cacheCount
-         */
-        static trimCache(cacheCount: number): void;
-        /**
-         * 清除缓存
-         */
-        static clearCache(): void;
-        /**
-         * 如果可以的话，从堆栈中弹出一个项
-         */
-        static obtain<T>(type: any): T;
-        /**
-         * 将项推回堆栈
-         * @param obj
-         */
-        static free<T>(obj: T): void;
-    }
-    interface IPoolable {
-        /**
-         * 重置对象以供重用。对象引用应该为空，字段可以设置为默认值
-         */
-        reset(): any;
-    }
-    var isIPoolable: (props: any) => props is IPoolable;
-}
-declare class RandomUtils {
-    /**
-     * 在 start 与 stop之间取一个随机整数，可以用step指定间隔， 但不包括较大的端点（start与stop较大的一个）
-     * 如
-     * this.randrange(1, 10, 3)
-     * 则返回的可能是   1 或  4 或  7  , 注意 这里面不会返回10，因为是10是大端点
-     *
-     * @param start
-     * @param stop
-     * @param step
-     * @return 假设 start < stop,  [start, stop) 区间内的随机整数
-     *
-     */
-    static randrange(start: number, stop: number, step?: number): number;
-    /**
-     * 返回a 到 b直间的随机整数，包括 a 和 b
-     * @param a
-     * @param b
-     * @return [a, b] 直接的随机整数
-     *
-     */
-    static randint(a: number, b: number): number;
-    /**
-     * 返回 a - b之间的随机数，不包括  Math.max(a, b)
-     * @param a
-     * @param b
-     * @return 假设 a < b, [a, b)
-     */
-    static randnum(a: number, b: number): number;
-    /**
-     * 打乱数组
-     * @param array
-     * @return
-     */
-    static shuffle(array: any[]): any[];
-    /**
-     * 从序列中随机取一个元素
-     * @param sequence 可以是 数组、 vector，等只要是有length属性，并且可以用数字索引获取元素的对象，
-     *                 另外，字符串也是允许的。
-     * @return 序列中的某一个元素
-     *
-     */
-    static choice(sequence: any): any;
-    /**
-     * 对列表中的元素进行随机采æ ?
-     * <pre>
-     * this.sample([1, 2, 3, 4, 5],  3)  // Choose 3 elements
-     * [4, 1, 5]
-     * </pre>
-     * @param sequence
-     * @param num
-     * @return
-     *
-     */
-    static sample(sequence: any[], num: number): any[];
-    /**
-     * 返回 0.0 - 1.0 之间的随机数，等同于 Math.random()
-     * @return Math.random()
-     *
-     */
-    static random(): number;
-    /**
-     * 计算概率
-     * @param    chance 概率
-     * @return
-     */
-    static boolean(chance?: number): boolean;
-    private static _randomCompare;
-}
-declare module es {
-    class RectangleExt {
-        /**
-         * 获取指定边的位置
-         * @param rect
-         * @param edge
-         */
-        static getSide(rect: Rectangle, edge: Edge): number;
-        /**
-         * 计算两个矩形的并集。结果将是一个包含其他两个的矩形。
-         * @param first
-         * @param point
-         */
-        static union(first: Rectangle, point: Vector2): Rectangle;
-        static getHalfRect(rect: Rectangle, edge: Edge): Rectangle;
-        /**
-         * 获取矩形的一部分，其宽度/高度的大小位于矩形的边缘，但仍然包含在其中。
-         * @param rect
-         * @param edge
-         * @param size
-         */
-        static getRectEdgePortion(rect: Rectangle, edge: Edge, size?: number): Rectangle;
-        static expandSide(rect: Rectangle, edge: Edge, amount: number): void;
-        static contract(rect: Rectangle, horizontalAmount: any, verticalAmount: any): void;
-    }
-}
-declare module es {
-    /**
      * 使得number/string/boolean类型作为对象引用来进行传递
      */
     class Ref<T extends number | string | boolean> {
         value: T;
         constructor(value: T);
-    }
-}
-declare module es {
-    interface ISet<T> {
-        add(item: T): boolean;
-        remove(item: T): boolean;
-        contains(item: T): boolean;
-        getCount(): number;
-        clear(): void;
-        toArray(): Array<T>;
-        /**
-         * 从当前集合中删除指定集合中的所有元素
-         * @param other
-         */
-        exceptWith(other: Array<T>): void;
-        /**
-         * 修改当前Set对象，使其只包含该对象和指定数组中的元素
-         * @param other
-         */
-        intersectWith(other: Array<T>): void;
-        /**
-         * 修改当前的集合对象，使其包含所有存在于自身、指定集合中的元素，或者两者都包含
-         * @param other
-         */
-        unionWith(other: Array<T>): void;
-        isSubsetOf(other: Array<T>): boolean;
-        isSupersetOf(other: Array<T>): boolean;
-        overlaps(other: Array<T>): boolean;
-        setEquals(other: Array<T>): boolean;
-    }
-    abstract class Set<T> implements ISet<T> {
-        protected buckets: T[][];
-        protected count: number;
-        constructor(source?: Array<T>);
-        abstract getHashCode(item: T): number;
-        abstract areEqual(value1: T, value2: T): boolean;
-        add(item: T): boolean;
-        remove(item: T): boolean;
-        contains(item: T): boolean;
-        getCount(): number;
-        clear(): void;
-        toArray(): T[];
-        /**
-         * 从当前集合中删除指定集合中的所有元素
-         * @param other
-         */
-        exceptWith(other: Array<T>): void;
-        /**
-         * 修改当前Set对象，使其只包含该对象和指定数组中的元素
-         * @param other
-         */
-        intersectWith(other: Array<T>): void;
-        unionWith(other: Array<T>): void;
-        /**
-         * 确定当前集合是否为指定集合或数组的子集
-         * @param other
-         */
-        isSubsetOf(other: Array<T>): boolean;
-        /**
-         * 确定当前不可变排序集是否为指定集合的超集
-         * @param other
-         */
-        isSupersetOf(other: Array<T>): boolean;
-        overlaps(other: Array<T>): boolean;
-        setEquals(other: Array<T>): boolean;
-        private buildInternalBuckets;
-        private bucketsContains;
-    }
-    class HashSet<T extends IEqualityComparable> extends Set<T> {
-        constructor(source?: Array<T>);
-        getHashCode(item: T): number;
-        areEqual(value1: T, value2: T): boolean;
     }
 }
 declare module es {
@@ -3595,11 +3067,11 @@ declare module es {
 }
 declare module es {
     /**
-     * 三角剖分
+     * 简单的剪耳三角测量器，最终的三角形将出现在triangleIndices列表中。
      */
     class Triangulator {
         /**
-         * 最后一次三角调用中使用的点列表的三角形列表项的索引
+         * 上次三角函数调用中使用的点列表的三角列表条目索引
          */
         triangleIndices: number[];
         private _triPrev;
@@ -3613,66 +3085,6 @@ declare module es {
         triangulate(points: Vector2[], arePointsCCW?: boolean): void;
         private initialize;
     }
-}
-declare module es {
-    class TypeUtils {
-        static getType(obj: any): any;
-    }
-}
-declare module es {
-    class Vector2Ext {
-        /**
-         * 检查三角形是CCW还是CW
-         * @param a
-         * @param center
-         * @param c
-         */
-        static isTriangleCCW(a: Vector2, center: Vector2, c: Vector2): boolean;
-        static halfVector(): Vector2;
-        /**
-         * 计算二维伪叉乘点(Perp(u)， v)
-         * @param u
-         * @param v
-         */
-        static cross(u: Vector2, v: Vector2): number;
-        /**
-         * 返回与传入向量垂直的向量
-         * @param first
-         * @param second
-         */
-        static perpendicular(first: Vector2, second: Vector2): Vector2;
-        /**
-         * Vector2的临时解决方案
-         * 标准化把向量弄乱了
-         * @param vec
-         */
-        static normalize(vec: Vector2): void;
-        /**
-         * 通过指定的矩阵对Vector2的数组中的向量应用变换，并将结果放置在另一个数组中。
-         * @param sourceArray
-         * @param sourceIndex
-         * @param matrix
-         * @param destinationArray
-         * @param destinationIndex
-         * @param length
-         */
-        static transformA(sourceArray: Vector2[], sourceIndex: number, matrix: Matrix2D, destinationArray: Vector2[], destinationIndex: number, length: number): void;
-        static transformR(position: Vector2, matrix: Matrix2D, result: Vector2): void;
-        /**
-         * 通过指定的矩阵对Vector2的数组中的所有向量应用变换，并将结果放到另一个数组中。
-         * @param sourceArray
-         * @param matrix
-         * @param destinationArray
-         */
-        static transform(sourceArray: Vector2[], matrix: Matrix2D, destinationArray: Vector2[]): void;
-        static round(vec: Vector2): Vector2;
-    }
-}
-declare class WebGLUtils {
-    /**
-     * 获取webgl context
-     */
-    static getContext(): CanvasRenderingContext2D;
 }
 declare namespace stopwatch {
     /**
@@ -3786,6 +3198,686 @@ declare namespace stopwatch {
         /** 该切片的运行时间 */
         readonly duration: number;
     }
+}
+declare module es {
+    /**
+     * 围绕一个数组的非常基本的包装，当它达到容量时自动扩展。
+     * 注意，在迭代时应该这样直接访问缓冲区，但使用FastList.length字段。
+     *
+     * @tutorial
+     * for( var i = 0; i <= list.length; i++ )
+     *      var item = list.buffer[i];
+     */
+    class FastList<T> {
+        /**
+         * 直接访问后备缓冲区。
+         * 不要使用buffer.Length! 使用FastList.length
+         */
+        buffer: T[];
+        /**
+         * 直接访问缓冲区内填充项的长度。不要改变。
+         */
+        length: number;
+        constructor(size?: number);
+        /**
+         * 清空列表并清空缓冲区中的所有项目
+         */
+        clear(): void;
+        /**
+         *  和clear的工作原理一样，只是它不会将缓冲区中的所有项目清空。
+         */
+        reset(): void;
+        /**
+         * 将该项目添加到列表中
+         * @param item
+         */
+        add(item: T): void;
+        /**
+         * 从列表中删除该项目
+         * @param item
+         */
+        remove(item: T): void;
+        /**
+         * 从列表中删除给定索引的项目。
+         * @param index
+         */
+        removeAt(index: number): void;
+        /**
+         * 检查项目是否在FastList中
+         * @param item
+         */
+        contains(item: T): boolean;
+        /**
+         * 如果缓冲区达到最大，将分配更多的空间来容纳额外的ItemCount。
+         * @param additionalItemCount
+         */
+        ensureCapacity(additionalItemCount?: number): void;
+        /**
+         * 添加数组中的所有项目
+         * @param array
+         */
+        addRange(array: T[]): void;
+        /**
+         * 对缓冲区中的所有项目进行排序，长度不限。
+         */
+        sort(comparer: IComparer<T>): void;
+    }
+}
+declare module es {
+    /**
+     * 创建这个字典的原因只有一个：
+     * 我需要一个能让我直接以数组的形式对值进行迭代的字典，而不需要生成一个数组或使用迭代器。
+     * 对于这个目标是比标准字典快N倍。
+     * Faster dictionary在大部分操作上也比标准字典快，但差别可以忽略不计。
+     * 唯一较慢的操作是在添加时调整内存大小，因为与标准数组相比，这个实现需要使用两个单独的数组。
+     */
+    class FasterDictionary<TKey, TValue> {
+        _values: TValue[];
+        _valuesInfo: FastNode[];
+        _buckets: number[];
+        _freeValueCellIndex: number;
+        _collisions: number;
+        constructor(size?: number);
+        getValuesArray(count: {
+            value: number;
+        }): TValue[];
+        readonly valuesArray: TValue[];
+        readonly count: number;
+        add(key: TKey, value: TValue): void;
+        addValue(key: TKey, value: TValue, indexSet: {
+            value: number;
+        }): boolean;
+        remove(key: TKey): boolean;
+        trim(): void;
+        clear(): void;
+        fastClear(): void;
+        containsKey(key: TKey): boolean;
+        tryGetValue(key: TKey): TValue;
+        tryFindIndex(key: TKey, findIndex: {
+            value: number;
+        }): boolean;
+        getDirectValue(index: number): TValue;
+        getIndex(key: TKey): number;
+        static updateLinkedList(index: number, valuesInfo: FastNode[]): void;
+        static hash(key: any): number;
+        static reduce(x: number, n: number): number;
+    }
+    class FastNode {
+        readonly key: any;
+        readonly hashcode: number;
+        previous: number;
+        next: number;
+        constructor(key: any, hash: number, previousNode?: number);
+    }
+}
+declare module es {
+    class Node<T> {
+        element: T;
+        next: Node<T>;
+        constructor(element: T, next?: Node<T>);
+    }
+    interface equalsFnType<T> {
+        (a: T, b: T): boolean;
+    }
+    function defaultEquals<T>(a: T, b: T): boolean;
+    class LinkedList<T> {
+        protected count: number;
+        protected next: any;
+        protected equalsFn: equalsFnType<T>;
+        protected head: Node<T>;
+        constructor(equalsFn?: typeof defaultEquals);
+        push(element: T): void;
+        removeAt(index: number): T;
+        getElementAt(index: number): Node<T>;
+        insert(element: T, index: number): boolean;
+        indexOf(element: T): number;
+        remove(element: T): void;
+        clear(): void;
+        size(): number;
+        isEmpty(): boolean;
+        getHead(): Node<T>;
+        toString(): string;
+    }
+}
+declare module es {
+    /**
+     * 可以用于列表池的简单类
+     */
+    class ListPool {
+        private static readonly _objectQueue;
+        /**
+         * 预热缓存，使用最大的cacheCount对象填充缓存
+         * @param cacheCount
+         */
+        static warmCache(cacheCount: number): void;
+        /**
+         * 将缓存修剪为cacheCount项目
+         * @param cacheCount
+         */
+        static trimCache(cacheCount: any): void;
+        /**
+         * 清除缓存
+         */
+        static clearCache(): void;
+        /**
+         * 如果可以的话，从堆栈中弹出一个项
+         */
+        static obtain<T>(): T[];
+        /**
+         * 将项推回堆栈
+         * @param obj
+         */
+        static free<T>(obj: Array<T>): void;
+    }
+}
+declare module es {
+    /**
+     * 用于管理一对对象的简单DTO
+     */
+    class Pair<T> implements IEqualityComparable {
+        first: T;
+        second: T;
+        constructor(first: T, second: T);
+        clear(): void;
+        equals(other: Pair<T>): boolean;
+        getHashCode(): number;
+    }
+}
+declare module es {
+    /**
+     * 用于池任何对象
+     */
+    class Pool<T> {
+        private static _objectQueue;
+        /**
+         * 预热缓存，使用最大的cacheCount对象填充缓存
+         * @param type
+         * @param cacheCount
+         */
+        static warmCache(type: any, cacheCount: number): void;
+        /**
+         * 将缓存修剪为cacheCount项目
+         * @param cacheCount
+         */
+        static trimCache(cacheCount: number): void;
+        /**
+         * 清除缓存
+         */
+        static clearCache(): void;
+        /**
+         * 如果可以的话，从堆栈中弹出一个项
+         */
+        static obtain<T>(type: any): T;
+        /**
+         * 将项推回堆栈
+         * @param obj
+         */
+        static free<T>(obj: T): void;
+    }
+    interface IPoolable {
+        /**
+         * 重置对象以供重用。对象引用应该为空，字段可以设置为默认值
+         */
+        reset(): any;
+    }
+    var isIPoolable: (props: any) => props is IPoolable;
+}
+declare module es {
+    interface ISet<T> {
+        add(item: T): boolean;
+        remove(item: T): boolean;
+        contains(item: T): boolean;
+        getCount(): number;
+        clear(): void;
+        toArray(): Array<T>;
+        /**
+         * 从当前集合中删除指定集合中的所有元素
+         * @param other
+         */
+        exceptWith(other: Array<T>): void;
+        /**
+         * 修改当前Set对象，使其只包含该对象和指定数组中的元素
+         * @param other
+         */
+        intersectWith(other: Array<T>): void;
+        /**
+         * 修改当前的集合对象，使其包含所有存在于自身、指定集合中的元素，或者两者都包含
+         * @param other
+         */
+        unionWith(other: Array<T>): void;
+        isSubsetOf(other: Array<T>): boolean;
+        isSupersetOf(other: Array<T>): boolean;
+        overlaps(other: Array<T>): boolean;
+        setEquals(other: Array<T>): boolean;
+    }
+    abstract class Set<T> implements ISet<T> {
+        protected buckets: T[][];
+        protected count: number;
+        constructor(source?: Array<T>);
+        abstract getHashCode(item: T): number;
+        abstract areEqual(value1: T, value2: T): boolean;
+        add(item: T): boolean;
+        remove(item: T): boolean;
+        contains(item: T): boolean;
+        getCount(): number;
+        clear(): void;
+        toArray(): T[];
+        /**
+         * 从当前集合中删除指定集合中的所有元素
+         * @param other
+         */
+        exceptWith(other: Array<T>): void;
+        /**
+         * 修改当前Set对象，使其只包含该对象和指定数组中的元素
+         * @param other
+         */
+        intersectWith(other: Array<T>): void;
+        unionWith(other: Array<T>): void;
+        /**
+         * 确定当前集合是否为指定集合或数组的子集
+         * @param other
+         */
+        isSubsetOf(other: Array<T>): boolean;
+        /**
+         * 确定当前不可变排序集是否为指定集合的超集
+         * @param other
+         */
+        isSupersetOf(other: Array<T>): boolean;
+        overlaps(other: Array<T>): boolean;
+        setEquals(other: Array<T>): boolean;
+        private buildInternalBuckets;
+        private bucketsContains;
+    }
+    class HashSet<T extends IEqualityComparable> extends Set<T> {
+        constructor(source?: Array<T>);
+        getHashCode(item: T): number;
+        areEqual(value1: T, value2: T): boolean;
+    }
+}
+declare class ArrayUtils {
+    /**
+     * 执行冒泡排序
+     * @param ary
+     */
+    static bubbleSort(ary: number[]): void;
+    /**
+     * 执行插入排序
+     * @param ary
+     */
+    static insertionSort(ary: number[]): void;
+    /**
+     * 执行二分搜索
+     * @param ary 搜索的数组（必须排序过）
+     * @param value 需要搜索的值
+     * @returns 返回匹配结果的数组索引
+     */
+    static binarySearch(ary: number[], value: number): number;
+    /**
+     * 返回匹配项的索引
+     * @param ary
+     * @param num
+     */
+    static findElementIndex(ary: any[], num: any): any;
+    /**
+     * 返回数组中最大值的索引
+     * @param ary
+     */
+    static getMaxElementIndex(ary: number[]): number;
+    /**
+     * 返回数组中最小值的索引
+     * @param ary
+     */
+    static getMinElementIndex(ary: number[]): number;
+    /**
+     * 返回一个"唯一性"数组
+     * @param ary 需要唯一性的数组
+     * @returns 唯一性的数组
+     *
+     * @tutorial
+     * 比如: [1, 2, 2, 3, 4]
+     * 返回: [1, 2, 3, 4]
+     */
+    static getUniqueAry(ary: number[]): number[];
+    /**
+     * 返回2个数组中不同的部分
+     * 比如数组A = [1, 2, 3, 4, 6]
+     *    数组B = [0, 2, 1, 3, 4]
+     * 返回[6, 0]
+     * @param    aryA
+     * @param    aryB
+     * @return
+     */
+    static getDifferAry(aryA: number[], aryB: number[]): number[];
+    /**
+     * 交换数组元素
+     * @param    array    目标数组
+     * @param    index1    交换后的索引
+     * @param    index2    交换前的索引
+     */
+    static swap(array: any[], index1: number, index2: number): void;
+    /**
+     * 清除列表
+     * @param ary
+     */
+    static clearList(ary: any[]): void;
+    /**
+     * 克隆一个数组
+     * @param    ary 需要克隆的数组
+     * @return  克隆的数组
+     */
+    static cloneList(ary: any[]): any[];
+    /**
+     * 判断2个数组是否相同
+     * @param ary1 数组1
+     * @param ary2 数组2
+     */
+    static equals(ary1: number[], ary2: number[]): Boolean;
+    /**
+     * 根据索引插入元素，索引和索引后的元素都向后移动一位
+     * @param ary
+     * @param index 插入索引
+     * @param value 插入的元素
+     * @returns 插入的元素 未插入则返回空
+     */
+    static insert(ary: any[], index: number, value: any): any;
+    /**
+     * 打乱数组 Fisher–Yates shuffle
+     * @param list
+     */
+    static shuffle<T>(list: T[]): void;
+    /**
+     * 如果项目已经在列表中，返回false，如果成功添加，返回true
+     * @param list
+     * @param item
+     */
+    static addIfNotPresent<T>(list: T[], item: T): boolean;
+    /**
+     * 返回列表中的最后一项。列表中至少应该有一个项目
+     * @param list
+     */
+    static lastItem<T>(list: T[]): T;
+    /**
+     * 从列表中随机获取一个项目。不清空检查列表!
+     * @param list
+     */
+    static randomItem<T>(list: T[]): T;
+    /**
+     * 从列表中随机获取物品。不清空检查列表，也不验证列表数是否大于项目数。返回的List可以通过ListPool.free放回池中
+     * @param list
+     * @param itemCount 从列表中返回的随机项目的数量
+     */
+    static randomItems<T>(list: T[], itemCount: number): T[];
+}
+declare module es {
+    class Base64Utils {
+        private static _keyStr;
+        /**
+         * 判断是否原生支持Base64位解析
+         */
+        static readonly nativeBase64: boolean;
+        /**
+         * 解码
+         * @param input
+         */
+        static decode(input: string): string;
+        /**
+         * 编码
+         * @param input
+         */
+        static encode(input: string): string;
+        /**
+         * 解析Base64格式数据
+         * @param input
+         * @param bytes
+         */
+        static decodeBase64AsArray(input: string, bytes: number): Uint32Array;
+        /**
+         * 暂时不支持
+         * @param data
+         * @param decoded
+         * @param compression
+         * @private
+         */
+        static decompress(data: string, decoded: any, compression: string): any;
+        /**
+         * 解析csv数据
+         * @param input
+         */
+        static decodeCSV(input: string): Array<number>;
+    }
+}
+declare module es {
+    class EdgeExt {
+        static oppositeEdge(self: Edge): Edge;
+        /**
+         * 如果边是右或左，则返回true
+         * @param self
+         */
+        static isHorizontal(self: Edge): boolean;
+        /**
+         * 如果边是顶部或底部，则返回true
+         * @param self
+         */
+        static isVertical(self: Edge): boolean;
+    }
+}
+declare module es {
+    class NumberExtension {
+        static toNumber(value: any): number;
+    }
+}
+declare class RandomUtils {
+    /**
+     * 在 start 与 stop之间取一个随机整数，可以用step指定间隔， 但不包括较大的端点（start与stop较大的一个）
+     * 如
+     * this.randrange(1, 10, 3)
+     * 则返回的可能是   1 或  4 或  7  , 注意 这里面不会返回10，因为是10是大端点
+     *
+     * @param start
+     * @param stop
+     * @param step
+     * @return 假设 start < stop,  [start, stop) 区间内的随机整数
+     *
+     */
+    static randrange(start: number, stop: number, step?: number): number;
+    /**
+     * 返回a 到 b直间的随机整数，包括 a 和 b
+     * @param a
+     * @param b
+     * @return [a, b] 直接的随机整数
+     *
+     */
+    static randint(a: number, b: number): number;
+    /**
+     * 返回 a - b之间的随机数，不包括  Math.max(a, b)
+     * @param a
+     * @param b
+     * @return 假设 a < b, [a, b)
+     */
+    static randnum(a: number, b: number): number;
+    /**
+     * 打乱数组
+     * @param array
+     * @return
+     */
+    static shuffle(array: any[]): any[];
+    /**
+     * 从序列中随机取一个元素
+     * @param sequence 可以是 数组、 vector，等只要是有length属性，并且可以用数字索引获取元素的对象，
+     *                 另外，字符串也是允许的。
+     * @return 序列中的某一个元素
+     *
+     */
+    static choice(sequence: any): any;
+    /**
+     * 对列表中的元素进行随机采æ ?
+     * <pre>
+     * this.sample([1, 2, 3, 4, 5],  3)  // Choose 3 elements
+     * [4, 1, 5]
+     * </pre>
+     * @param sequence
+     * @param num
+     * @return
+     *
+     */
+    static sample(sequence: any[], num: number): any[];
+    /**
+     * 返回 0.0 - 1.0 之间的随机数，等同于 Math.random()
+     * @return Math.random()
+     *
+     */
+    static random(): number;
+    /**
+     * 计算概率
+     * @param    chance 概率
+     * @return
+     */
+    static boolean(chance?: number): boolean;
+    private static _randomCompare;
+}
+declare module es {
+    class RectangleExt {
+        /**
+         * 获取指定边的位置
+         * @param rect
+         * @param edge
+         */
+        static getSide(rect: Rectangle, edge: Edge): number;
+        /**
+         * 计算两个矩形的并集。结果将是一个包含其他两个的矩形。
+         * @param first
+         * @param point
+         */
+        static union(first: Rectangle, point: Vector2): Rectangle;
+        static getHalfRect(rect: Rectangle, edge: Edge): Rectangle;
+        /**
+         * 获取矩形的一部分，其宽度/高度的大小位于矩形的边缘，但仍然包含在其中。
+         * @param rect
+         * @param edge
+         * @param size
+         */
+        static getRectEdgePortion(rect: Rectangle, edge: Edge, size?: number): Rectangle;
+        static expandSide(rect: Rectangle, edge: Edge, amount: number): void;
+        static contract(rect: Rectangle, horizontalAmount: any, verticalAmount: any): void;
+        /**
+         * 给定多边形的点，计算其边界
+         * @param points
+         */
+        static boundsFromPolygonVector(points: Vector2[]): Rectangle;
+        /**
+         * 创建一个给定最小/最大点（左上角，右下角）的矩形
+         * @param min
+         * @param max
+         */
+        static fromMinMaxVector(min: Vector2, max: Vector2): Rectangle;
+        /**
+         * 返回一个跨越当前边界和提供的delta位置的Bounds
+         * @param rect
+         * @param deltaX
+         * @param deltaY
+         */
+        static getSweptBroadphaseBounds(rect: Rectangle, deltaX: number, deltaY: number): Rectangle;
+        /**
+         * 如果矩形发生碰撞，返回true
+         * moveX和moveY将返回b1为避免碰撞而必须移动的移动量
+         * @param rect
+         * @param other
+         * @param moveX
+         * @param moveY
+         */
+        collisionCheck(rect: Rectangle, other: Rectangle, moveX: Ref<number>, moveY: Ref<number>): boolean;
+        /**
+         * 计算两个矩形之间有符号的交点深度
+         * @param rectA
+         * @param rectB
+         * @returns 两个相交的矩形之间的重叠量。
+         * 这些深度值可以是负值，取决于矩形相交的边。
+         * 这允许调用者确定正确的推送对象的方向，以解决碰撞问题。
+         * 如果矩形不相交，则返回Vector2.zero。
+         */
+        static getIntersectionDepth(rectA: Rectangle, rectB: Rectangle): Vector2;
+    }
+}
+declare module es {
+    class TypeUtils {
+        static getType(obj: any): any;
+    }
+}
+declare module es {
+    class Vector2Ext {
+        /**
+         * 检查三角形是CCW还是CW
+         * @param a
+         * @param center
+         * @param c
+         */
+        static isTriangleCCW(a: Vector2, center: Vector2, c: Vector2): boolean;
+        static halfVector(): Vector2;
+        /**
+         * 计算二维伪叉乘点(Perp(u)， v)
+         * @param u
+         * @param v
+         */
+        static cross(u: Vector2, v: Vector2): number;
+        /**
+         * 返回垂直于传入向量的向量
+         * @param first
+         * @param second
+         */
+        static perpendicular(first: Vector2, second: Vector2): Vector2;
+        /**
+         * 返回两个向量之间的角度，单位为度
+         * @param from
+         * @param to
+         */
+        static angle(from: Vector2, to: Vector2): number;
+        /**
+         * 给定两条直线(ab和cd)，求交点
+         * @param a
+         * @param b
+         * @param c
+         * @param d
+         * @param intersection
+         */
+        static getRayIntersection(a: Vector2, b: Vector2, c: Vector2, d: Vector2, intersection?: Vector2): boolean;
+        /**
+         * Vector2的临时解决方案
+         * 标准化把向量弄乱了
+         * @param vec
+         */
+        static normalize(vec: Vector2): void;
+        /**
+         * 通过指定的矩阵对Vector2的数组中的向量应用变换，并将结果放置在另一个数组中。
+         * @param sourceArray
+         * @param sourceIndex
+         * @param matrix
+         * @param destinationArray
+         * @param destinationIndex
+         * @param length
+         */
+        static transformA(sourceArray: Vector2[], sourceIndex: number, matrix: Matrix2D, destinationArray: Vector2[], destinationIndex: number, length: number): void;
+        /**
+         * 创建一个新的Vector2，该Vector2包含了通过指定的Matrix进行的二维向量变换
+         * @param position
+         * @param matrix
+         * @param result
+         */
+        static transformR(position: Vector2, matrix: Matrix2D, result?: Vector2): void;
+        /**
+         * 通过指定的矩阵对Vector2的数组中的所有向量应用变换，并将结果放到另一个数组中。
+         * @param sourceArray
+         * @param matrix
+         * @param destinationArray
+         */
+        static transform(sourceArray: Vector2[], matrix: Matrix2D, destinationArray: Vector2[]): void;
+        static round(vec: Vector2): Vector2;
+    }
+}
+declare class WebGLUtils {
+    /**
+     * 获取webgl context
+     */
+    static getContext(): CanvasRenderingContext2D;
 }
 declare module linq {
     class Enumerable {
@@ -4101,6 +4193,156 @@ declare module linq {
     }
 }
 declare module es {
+    /**
+     * 一段的终点
+     */
+    class EndPoint {
+        /** 该部分的位置 */
+        position: Vector2;
+        /** 如果这个端点是一个段的起始点或终点（每个段只有一个起始点和一个终点） */
+        begin: boolean;
+        /** 该端点所属的段 */
+        segment: Segment;
+        /** 端点相对于能见度测试位置的角度 */
+        angle: number;
+        constructor();
+    }
+    class EndPointComparer implements IComparer<EndPoint> {
+        /**
+         * 按角度对点进行排序的比较功能
+         * @param a
+         * @param b
+         */
+        compare(a: EndPoint, b: EndPoint): 1 | 0 | -1;
+    }
+}
+declare module es {
+    /**
+     * 表示可见性网格中的遮挡线段
+     */
+    class Segment {
+        /**
+         * 该部分的第一个终点
+         */
+        p1: EndPoint;
+        /**
+         * 该部分的第二个终点
+         */
+        p2: EndPoint;
+        constructor();
+    }
+}
+declare module es {
+    /**
+     * 类，它可以计算出一个网格，表示从给定的一组遮挡物的原点可以看到哪些区域。使用方法如下。
+     *
+     * - 调用 begin
+     * - 添加任何遮挡物
+     * - 调用end来获取可见度多边形。当调用end时，所有的内部存储都会被清空。
+     */
+    class VisibilityComputer {
+        /**
+         *  在近似圆的时候要用到的线的总数。只需要一个180度的半球，所以这将是近似该半球的线段数
+         */
+        lineCountForCircleApproximation: number;
+        _radius: number;
+        _origin: Vector2;
+        _isSpotLight: boolean;
+        _spotStartAngle: number;
+        _spotEndAngle: number;
+        _endPoints: EndPoint[];
+        _segments: Segment[];
+        _radialComparer: EndPointComparer;
+        static _cornerCache: Vector2[];
+        static _openSegments: LinkedList<Segment>;
+        constructor(origin?: Vector2, radius?: number);
+        /**
+         * 增加了一个对撞机作为PolyLight的遮蔽器
+         * @param collider
+         */
+        addColliderOccluder(collider: Collider): void;
+        /**
+         * 增加了一个圆形的遮挡器
+         * @param position
+         * @param radius
+         */
+        addCircleOccluder(position: Vector2, radius: number): void;
+        /**
+         * 增加一个线型遮挡器
+         * @param p1
+         * @param p2
+         */
+        addLineOccluder(p1: Vector2, p2: Vector2): void;
+        /**
+         * 增加一个方形的遮挡器
+         * @param bounds
+         */
+        addSquareOccluder(bounds: Rectangle): void;
+        /**
+         * 添加一个段，第一个点在可视化中显示，但第二个点不显示。
+         * 每个端点都是两个段的一部分，但我们希望只显示一次
+         * @param p1
+         * @param p2
+         */
+        addSegment(p1: Vector2, p2: Vector2): void;
+        /**
+         * 移除所有的遮挡物
+         */
+        clearOccluders(): void;
+        /**
+         * 为计算机计算当前的聚光做好准备
+         * @param origin
+         * @param radius
+         */
+        begin(origin: Vector2, radius: number): void;
+        /**
+         * 计算可见性多边形，并返回三角形扇形的顶点（减去中心顶点）。返回的数组来自ListPool
+         */
+        end(): Vector2[];
+        addTriangle(triangles: Vector2[], angle1: number, angle2: number, segment: Segment): void;
+        /**
+         * 计算直线p1-p2与p3-p4的交点
+         * @param p1
+         * @param p2
+         * @param p3
+         * @param p4
+         */
+        static lineLineIntersection(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): Vector2;
+        static between(value: number, min: number, max: number): boolean;
+        /**
+         * 辅助函数，用于沿外周线构建分段，以限制光的半径。
+         */
+        loadRectangleBoundaries(): void;
+        /**
+         * 助手：我们知道a段在b的前面吗？实现不反对称（也就是说，isSegmentInFrontOf(a, b) != (!isSegmentInFrontOf(b, a))）。
+         * 另外要注意的是，在可见性算法中，它只需要在有限的一组情况下工作，我不认为它能处理所有的情况。
+         * 见http://www.redblobgames.com/articles/visibility/segment-sorting.html
+         * @param a
+         * @param b
+         * @param relativeTo
+         */
+        isSegmentInFrontOf(a: Segment, b: Segment, relativeTo: Vector2): boolean;
+        /**
+         * 返回略微缩短的向量：p * (1 - f) + q * f
+         * @param p
+         * @param q
+         * @param f
+         */
+        static interpolate(p: Vector2, q: Vector2, f: number): Vector2;
+        /**
+         * 返回点是否在直线p1-p2的 "左边"。
+         * @param p1
+         * @param p2
+         * @param point
+         */
+        static isLeftOf(p1: Vector2, p2: Vector2, point: Vector2): boolean;
+        /**
+         * 处理片段，以便我们稍后对它们进行分类
+         */
+        updateSegments(): void;
+    }
+}
+declare module es {
     interface ITimer {
         context: any;
         /**
@@ -4112,12 +4354,15 @@ declare module es {
          */
         reset(): any;
         /**
-         *
+         * 返回投向T的上下文，作为方便
          */
         getContext<T>(): T;
     }
 }
 declare module es {
+    /**
+     * 私有类隐藏ITimer的实现
+     */
     class Timer implements ITimer {
         context: any;
         _timeInSeconds: number;
