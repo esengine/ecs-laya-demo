@@ -24,12 +24,12 @@ class Main {
 		//激活资源版本控制，version.json由IDE发布功能自动生成，如果没有也不影响后续流程
 		Laya.ResourceVersion.enable("version.json", Laya.Handler.create(this, this.onVersionLoaded), Laya.ResourceVersion.FILENAME_VERSION);
 
-		let core = new es.Core(GameConfig.width, GameConfig.height);
-		Laya.timer.frameLoop(1, this, ()=>{
+		es.Core.create();
+		Laya.timer.frameLoop(1, this, () => {
 			// 必须派发该事件 否则核心内所有更新事件将不会执行
-			es.Core.emitter.emit(es.CoreEvents.FrameUpdated, Laya.systemTimer.currTimer);
+			es.Core.emitter.emit(es.CoreEvents.frameUpdated);
 		});
-		core._titleMemory = (totalMemory, frameCounter) => {
+		es.Core.Instance._titleMemory = (totalMemory, frameCounter) => {
 			console.log(`info 使用内存: ${totalMemory / 2} MB  FPS: ${frameCounter}`);
 		};
 
